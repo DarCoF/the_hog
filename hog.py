@@ -1,10 +1,28 @@
 """The Game of Hog."""
-
-from this import d
+from sys import platform
+from audioop import avg
+from platform import platform
 from time import sleep
-from unittest import result
-from dice import four_sided, six_sided, make_test_dice
+import time
+from dice import four_sided, make_n_outcomes, mersenne_cracker, six_sided, make_test_dice
 from ucb import main, trace, log_current_line, interact
+from randcrack import RandCrack
+
+import multiprocessing
+from multiprocessing import Queue
+if platform == 'Windows':
+    try:
+        multiprocessing.set_start_method('spawn')
+    except Exception as e:
+        print('ERROR:', e)
+elif platform == 'Linux':
+    try:
+        multiprocessing.set_start_method('fork')
+    except Exception as e:
+        print('ERROR:', e)
+else:
+    OSError('OS not compliant with current implementation')
+
 
 GOAL_SCORE = 100 # The goal of Hog is to score 100 points.
 
@@ -34,6 +52,15 @@ def roll_dice(num_rolls, dice=six_sided):
         total, k = total + roll, k + 1
     return total
     # END PROBLEM 1
+
+def find_ones_in_roll(num_rolls, dice=six_sided):
+    k = 0
+    while k < num_rolls:
+        roll = dice()
+        if roll == 1:
+            return 1
+        k += 1
+    return 0
 
 def free_bacon(score):
     """   
@@ -155,7 +182,7 @@ def play(strategy0, strategy1, goal=GOAL_SCORE):
 
         who = other(who) # swap player
     print('FINAL SCORE & OPPONENT SCORES ARE: {}, {}'.format(score, opponent_score))
-    return score, opponent_score  # You may wish to change this line.
+    return score, opponent_score
 
 #######################
 # Phase 2: Strategies #
@@ -172,7 +199,6 @@ SELECTOR = 1
 FREE_BACON_RANGE = 11
 
 # Basic Strategy
-
 BASELINE_NUM_ROLLS = 5
 BACON_MARGIN = 8
 
@@ -194,8 +220,7 @@ def always_roll(n):
     return strategy
 
 # Experiments
-
-def make_averaged(fn, num_samples=10000):
+def make_averaged(fn, num_samples=15625): #YEP. ESO ES 1 MILLÓN DE PARTIDAS :)))) y la fiesta comienza. Quedan muchas horas.
     """Return a function that returns the average_value of FN when called.
 
     To implement this function, you will have to use *args syntax, a new Python
@@ -244,14 +269,17 @@ def max_scoring_num_rolls(dice=six_sided):
     """
     "*** YOUR CODE HERE ***"
     max_score = 0
+    avg_scores = []
     for n in range(1, 11):
-        average_n = make_averaged(roll_dice, 1000000)(n, dice)
+        average_n = make_averaged(roll_dice, 10000)(n, dice)
         assert average_n > 0, 'average result must be positive.'
+        avg_scores.append(average_n)
         print('{} dice scores {} on average'.format(n, round(average_n, 1)))
         if average_n > max_score:
             max_score = average_n
             curr_max_val_n_idx = (n, max_score)    
-    return curr_max_val_n_idx[0]
+    return curr_max_val_n_idx, avg_scores
+
 
 def winner(strategy0, strategy1):
     """Return 0 if strategy0 wins against strategy1, and 1 otherwise."""
@@ -267,15 +295,6 @@ def average_win_rate(strategy, baseline=always_roll(BASELINE_NUM_ROLLS)):
     win_rate_as_player_1 = make_averaged(winner)(baseline, strategy)
     return (win_rate_as_player_0 + win_rate_as_player_1) / 2 # Average results
 
-def avg_win_rate_free_vs_no_free_bacon(margin) -> dict:
-    win_rate_per_free_bacon_margin = {}
-    for m in range(1, margin + 1):
-        win_rate = average_win_rate(select_free_bacon_margin(m))
-        win_rate_per_free_bacon_margin[str(m)] = win_rate
-    
-    for key in win_rate_per_free_bacon_margin.keys():
-        win_rate_per_free_bacon_margin[key] = win_rate_per_free_bacon_margin[key] - win_rate_per_free_bacon_margin[str(margin)] 
-    return win_rate_per_free_bacon_margin
 
 def run_experiments():
     """Run a series of strategy experiments and report results."""
@@ -297,13 +316,21 @@ def run_experiments():
     if False: # Change to True to test final_strategy
         print('final_strategy win rate:', average_win_rate(final_strategy))
     
-    if True: #
+    if False: #
         print('free_bacon_impact_study', avg_win_rate_free_vs_no_free_bacon(FREE_BACON_RANGE))
+
+    if False: # Change to True to test predictive strategy
+        print('Predictive strategy', average_win_rate(predictive_strategy(mersenne_cracker, 10)))
+    
+    if True: # Test predictive strategy with multi-threading
+        queue = start_worker_multiprocess(32)
+        results = get_results_from_queue(queue)
+        print("Average win rate for each thread is {}. Final average win rate for 1m plays is {}".format(results, sum(results) / len(results)))       
 
     "*** You may add additional experiments as you wish ***"
 
 # Strategies
-
+# Basic bacon strategy
 def bacon_strategy(score, opponent_score):
     """This strategy rolls 0 dice if that gives at least BACON_MARGIN points,
     and rolls BASELINE_NUM_ROLLS otherwise.
@@ -321,6 +348,7 @@ def bacon_strategy(score, opponent_score):
     else:
         return BASELINE_NUM_ROLLS
 
+# Basic swap strategy
 def swap_strategy(score, opponent_score):
     """This strategy rolls 0 dice when it would result in a beneficial swap and
     rolls BASELINE_NUM_ROLLS if it would result in a harmful swap. It also rolls
@@ -344,7 +372,7 @@ def swap_strategy(score, opponent_score):
     else:
         return bacon_strategy(score, opponent_score)
 
-
+# Final Strategy
 def is_multiple(multiple, base) -> bool:
     if multiple % base == 0:
         return True
@@ -370,6 +398,8 @@ def my_bacon_strategy(score, opponent_score, margin) -> int:
     """
     "*** YOUR CODE HERE ***"
     if free_bacon(opponent_score) >= margin:
+        if sum(free_bacon(opponent_score), score) / opponent_score == 2.0:
+            return FINAL_BASELINE_NUM_ROLLS 
         return 0
     else:
         return FINAL_BASELINE_NUM_ROLLS
@@ -383,7 +413,7 @@ def final_strategy(score, opponent_score):
     3- If opponent is winning by a big leap (SCORE_MARGIN = 20) increase risk in turns. Up number of rolls to 7 or 8.
     4- Always check for swine swap when opponent is ahead.
     5- When rolling four-sided dices, always choose 4. Maximize average count.
-    6- Always consider using hot wild if opponent score is >50. Free bacon will give you 6 points and, in turn, the max average for a four-sided dice throwing 5 dices is 4.3.
+    6- Always consider using hot wild if opponent score is >40. Free bacon will give you 6 points and, in turn, the max average for a four-sided dice throwing 5 dices is 4.3.
 
 
     """
@@ -422,11 +452,73 @@ def select_free_bacon_margin(margin):
         Returns:
             _type_: _description_
         """
-        if free_bacon(opponent_score) > margin:
+        if free_bacon(opponent_score) >= margin:
             return 0
         else:
             return BASELINE_NUM_ROLLS
     return get_strategy
+
+# Predictive strategy no threading
+def get_index_on_iterable(iterable: list = [], condition: int = 0) -> int:
+    for d in iterable:
+        if d == condition:
+            return iterable.index(d)
+
+def predictive_strategy(fn, max_dices: int, dice_sides: int = 6, rc = RandCrack(), n_bits = 624, ) -> int:
+    """ A higher-order function that returns a function computing the next max_dices values based on a predictor.
+
+    Args:
+        fn (function): a pseudo-random predictor function.
+        max_dices (int): the maximum number of dices to be predicted.
+        dices_sides (int, optional): the type of dice. Defaults to 6.
+    """
+    assert max_dices < 11 # never roll more than 10 dices
+    # TODO: esto es una chapuza
+    def get_n_dices(*args) -> int:
+        """A function that returns a number of dices.
+        """
+        rc = RandCrack()
+        fn(rc, n_bits) # call function
+        dices_next = []
+        for _ in range(max_dices):
+            dices_next.append(rc.predict_randrange(1, dice_sides + 1))
+        if 1 not in dices_next:
+            return len(dices_next)
+        else:
+            index = get_index_on_iterable(dices_next, 1) # Return el índice donde está el primer uno
+            if sum(dices_next[:index]) <= free_bacon(args[1]):
+                return 0
+            else:
+                return index
+    return get_n_dices
+
+# Predictive strategy using multiprocessing
+
+def worker(num, queue):
+    """Thread worker function"""
+    print("Worker %d started" % num)
+    time.sleep(2)
+    result = average_win_rate(predictive_strategy(mersenne_cracker, 10))
+    queue.put(result)
+    print("Worker %d finished" % num)
+    
+def start_worker_multiprocess(num_proc):
+    queue = Queue()
+    processes = []
+    for i in range(num_proc):
+        p =  multiprocessing.Process(target=worker, args=(i, queue))
+        processes.append(p)
+        p.start()
+    for p in processes:
+        p.join()
+    return queue
+
+def get_results_from_queue(queue):
+    results = []
+    while not queue.empty():
+        result = queue.get()
+        results.append(result)
+    return results
 
 
 ##########################

@@ -12,7 +12,9 @@ Types of dice:
     cycle among a fixed set of values when rolled.
 """
 
+import random, time
 from random import randint
+
 
 def make_fair_dice(sides):
     """Return a die that returns 1 to SIDES with equal chance."""
@@ -50,3 +52,16 @@ def make_test_dice(*outcomes):
         index = (index + 1) % len(outcomes)
         return outcomes[index]
     return dice
+
+def make_n_outcomes(n_rolls: int, dice = six_sided) -> list:
+    """Returns outcomes resulting from rolling a dice n_rolls times"""
+    outcomes = []
+    for _ in range(n_rolls):
+        outcomes.append(dice())
+    return outcomes
+
+def mersenne_cracker(rc, gen_bits: int = 624):
+    random.seed(time.time())
+    for i in range(gen_bits):
+        rc.submit(random.randint(0, 4294967294))
+        # Could be filled with random.randint(0,4294967294) or random.randrange(0,4294967294)

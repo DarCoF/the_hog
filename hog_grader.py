@@ -20,7 +20,7 @@ except (SyntaxError, IndentationError) as e:
     traceback.print_exc(limit=1)
     exit(1)
 
-from dice import make_test_dice, four_sided, six_sided
+from dice import make_n_outcomes, make_test_dice, four_sided, mersenne_cracker, six_sided
 from ucb import main
 
 #########
@@ -153,6 +153,14 @@ def problem9(grades):
     print('Note: Tests for problem9 are not included here.',
           'Submit your project to the actual autograder to get results!',
           sep='\n', end='\n')
+
+@test
+def problem10(grades):
+    """ Test predictive strategy """
+    predict_rolls = hog.predictive_strategy(mersenne_cracker, 10)
+    test_suite = [((), make_n_outcomes(10))]
+    for _ in range(1000):
+        check_func(predict_rolls, test_suite)
 
 
 ##########################

@@ -1,0 +1,49 @@
+1) Understand the impact of free bacon -> Create a graph that shows the percentual advantage of each free bacon margin (0, 10) respect to a no free bacon strategy.
+For each margin value (0-10) will run 10000 matches of 100 points each and the win rate is computed. Then, this win rate is compared to the avg win rate of not using a free bacon strategy and the difference stored in a dictionary.
+
+2) Graph the average roll count per number of dices considering the "pig-out" rule
+3) 
+
+
+Pig-out: (considered)
+Free-bacon: (considered)
+Swap swine: (considered) only used in case of swap + free bacon combo. BEWARE of NOT using free bacon in a roll if it is gonna cause a non-benefitial swine swap. Protective strategy.
+Hot-wild: (considered). 
+
+There is not much left to be exploited aside from the last DoF: alternate the number on rolls per turn depending of probabilities. In simple term, try to take advantage of the pseudo-randomness of the randint module that generate each roll.
+
+
+import time
+import threading
+from queue import Queue
+
+def worker(num, queue):
+    """Thread worker function"""
+    print("Worker %d started" % num)
+    time.sleep(2)
+    result = num * num
+    queue.put(result)
+    print("Worker %d finished" % num)
+
+def start_worker_threads(num_threads):
+    queue = Queue()
+    threads = []
+    for i in range(num_threads):
+        t = threading.Thread(target=worker, args=(i, queue))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    return queue
+
+def get_results_from_queue(queue):
+    results = []
+    while not queue.empty():
+        result = queue.get()
+        results.append(result)
+    return results
+
+queue = start_worker_threads(5)
+results = get_results_from_queue(queue)
+print("Results from workers:", results)
